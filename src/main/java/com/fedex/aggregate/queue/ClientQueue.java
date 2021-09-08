@@ -14,6 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.client.RestTemplate;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fedex.aggregate.model.QueueRequest;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -26,7 +27,7 @@ public abstract class ClientQueue {
   private final RestTemplate restTemplate;
   private final String url;
   private final Map<String, ResponseEntity<Map<String, JsonNode>>> enrichedResponses = new HashMap<>();
-  protected BlockingQueue<Map<String, Set<String>>> queue = new ArrayBlockingQueue<>(5);
+  protected BlockingQueue<QueueRequest> queue = new ArrayBlockingQueue<>(5);
   protected long oldestRequestTime = 0;
 
   /**
@@ -47,15 +48,16 @@ public abstract class ClientQueue {
    * @param id          the id
    */
   public void addToQueue(final Set<String> queryParams, final String id) throws InterruptedException {
-    final Map<String, Set<String>> requestMap = new HashMap<>();
-    requestMap.put(id, queryParams);
-      queue.offer(requestMap, 1, TimeUnit.SECONDS);
+    for (String queryParam : queryParams) {
+      queue.offer(QueueRequest.builder().id(id).requestParam(queryParam).build(), 1, TimeUnit.SECONDS);
       if (queue.size() == 1) {
         oldestRequestTime = System.currentTimeMillis();
       }
       if (queue.remainingCapacity() == 0) {
         executeRequests();
       }
+    }
+
   }
 
   /**

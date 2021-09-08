@@ -3,7 +3,6 @@ package com.fedex.aggregate.queue;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -20,6 +19,7 @@ import org.springframework.web.client.RestTemplate;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fedex.aggregate.model.QueueRequest;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -29,24 +29,29 @@ import lombok.extern.slf4j.Slf4j;
 @AllArgsConstructor
 @Slf4j
 public class Requester implements Runnable {
-  private final BlockingQueue<Map<String, Set<String>>> queue;
+  private final BlockingQueue<QueueRequest> queue;
   private final String url;
   private final RestTemplate restTemplate;
   private final Map<String, ResponseEntity<Map<String, JsonNode>>> enrichedResponses;
 
   @Override
   public void run() {
-    final List<Map<String, Set<String>>> requests = new ArrayList<>();
+    final List<QueueRequest> requests = new ArrayList<>();
     queue.drainTo(requests);
 
-    final Set<String> requestList = new HashSet<>();
-    final List<String> originalRequestIds = new ArrayList<>();
-    requests.forEach(request -> {
-      request.values().forEach(requestList::addAll);
-      originalRequestIds.addAll(request.keySet());
-    });
+    // Map request id with request parameters
+    final Set<String> requestIdList = requests.stream().map(QueueRequest::getId).collect(Collectors.toSet());
+    final Map<String, Set<String>> requestMap = new HashMap<>();
+    for (String requestId : requestIdList) {
+      requestMap.put(requestId,
+          requests.stream()
+              .filter(queueRequest -> queueRequest.getId().equalsIgnoreCase(requestId))
+              .map(QueueRequest::getRequestParam)
+              .collect(Collectors.toSet()));
+    }
 
-    final String csvParams = requestList.stream().collect(Collectors.joining(","));
+    // Convert parameters to a comma separated values
+    final String csvParams = requests.stream().map(QueueRequest::getRequestParam).collect(Collectors.joining(","));
     final HttpEntity<?> entity = new HttpEntity<>(createHeaders());
     log.info("Requesting {}{}", url, csvParams);
     ResponseEntity<JsonNode> response;
@@ -57,15 +62,15 @@ public class Requester implements Runnable {
       response = getNullForServiceUnavailable(csvParams);
     }
     log.info("Response is {}", response);
-    mapResponse(requests, response);
+    mapResponse(requestMap, response);
   }
 
-  private void mapResponse(List<Map<String, Set<String>>> requests, ResponseEntity<JsonNode> apiResponse) {
-    requests.forEach(request -> request.entrySet().forEach(entry -> {
-      Map<String, JsonNode> paramHashmap = new HashMap<>();
-      entry.getValue().forEach(param -> paramHashmap.put(param, apiResponse.getBody().get(param)));
-      enrichedResponses.put(entry.getKey(), ResponseEntity.ok(paramHashmap));
-    }));
+  private void mapResponse(final Map<String, Set<String>> requestMap, final ResponseEntity<JsonNode> apiResponse) {
+    requestMap.forEach((key, value) -> {
+      final Map<String, JsonNode> paramHashmap = new HashMap<>();
+      value.forEach(param -> paramHashmap.put(param, apiResponse.getBody().get(param)));
+      enrichedResponses.put(key, ResponseEntity.ok(paramHashmap));
+    });
   }
 
   private HttpHeaders createHeaders() {
