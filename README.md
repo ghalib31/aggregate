@@ -1,3 +1,5 @@
+[![ghalib31](https://circleci.com/gh/ghalib31/aggregate.svg?style=shield)](https://app.circleci.com/pipelines/github/ghalib31/aggregate)
+
 # FedEx Assignment
 
 ## Pre-requisite
